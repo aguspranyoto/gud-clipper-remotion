@@ -1,0 +1,2 @@
+# Source footage and cut clips live here (public/clips/clip-N.mp4).
+# Loaded in code via staticFile().
