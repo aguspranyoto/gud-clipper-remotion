@@ -248,7 +248,7 @@ function normalizeTranscript(json) {
 
 // Pure: flat word list (absolute source seconds) -> single-line caption
 // cards, max 3 words each. One line only — cards never wrap; the render
-// keeps each card on exactly one line at the 50/50 seam.
+// keeps each card on exactly one line at the 65/35 seam.
 function groupCaptions(words, fps) {
   const cards = [];
   let cur = null;
@@ -588,7 +588,7 @@ clips.forEach((clip, i) => {
   const punchTimes = [...punches].sort((a, b) => a - b);
 
   // B-roll cutaways (audio stays on the interview). Default fills the
-  // bottom half under the speaker; full: true takes the whole frame
+  // bottom 35% under the speaker; full: true takes the whole frame
   // (meme close-up, animal reaction) — captions stay on top regardless.
   // Files live under public/broll/<slug>/ and are rewritten to the
   // staticFile-relative path broll/<slug>/....

@@ -27,7 +27,7 @@ references/viral-rubric.md  # the 7-signal scoring rubric for moment detection
 
 ## What the render looks like
 
-50/50 vertical split — speaker on top in a wide medium shot (2 people stay
+65/35 vertical split — speaker on top in a wide medium shot (2 people stay
 in frame, never zoomed into a face), B-roll image/video on the bottom
 (full-frame for funny/animal close-ups). Persistent `SUMBER : CHANNEL`
 credit top-left, single-line ALL CAPS condensed captions on the seam

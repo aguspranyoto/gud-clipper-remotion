@@ -124,11 +124,11 @@ Field guide:
 - `focus` (`left`/`center`/`right`, default `center`) — static-crop fallback when face detect finds no face. The render frames wide on purpose (co-hosts stay in frame), so this is only insurance — with face data the camera follows loosely, never face-zoom.
 - `keywords` — kata/frasa yang di-highlight kuning + di-zoom-punch. Pilih angka, nominal, nama, dan kata emosional ("bangkrut", "selingkuh", "gila"). Max ~6 per clip; lebih dari itu = semuanya jadi tidak spesial.
 - `punchlines` — timestamp sumber (detik) untuk zoom punch manual, misal pas ketawa meledak atau gestur. Keyword hits otomatis jadi punch juga.
-- `broll` — cutaway di panel bawah 50/50 (audio interview tetap jalan). `file` boleh ditulis bebas (`public/broll/monyet.jpg` atau `broll/x.jpg` — script menormalkan ke `public/broll/<slug>/`), `at` timestamp sumber, `dur` detik. Tambah `"full": true` untuk full-frame (close-up lucu/reaksi). Gambar = diulang dengan Ken Burns drift; mp4/mov/webm = muted. Siapkan file-nya dulu dari internet sesuai topik bahasan ke `studio/public/broll/<slug>/` (bahas monyet → foto monyet, bahas buaya → foto buaya) — skill ini tidak men-download-kan B-roll. Bahas angka/chart → screenshot chart-nya; bahas tempat/orang → foto-nya; tidak ada visual relevan → kosongkan saja (clip jadi full speaker).
+- `broll` — cutaway di panel bawah 65/35 (audio interview tetap jalan). `file` boleh ditulis bebas (`public/broll/monyet.jpg` atau `broll/x.jpg` — script menormalkan ke `public/broll/<slug>/`), `at` timestamp sumber, `dur` detik. Tambah `"full": true` untuk full-frame (close-up lucu/reaksi). Gambar = diulang dengan Ken Burns drift; mp4/mov/webm = muted. Siapkan file-nya dulu dari internet sesuai topik bahasan ke `studio/public/broll/<slug>/` (bahas monyet → foto monyet, bahas buaya → foto buaya) — skill ini tidak men-download-kan B-roll. Bahas angka/chart → screenshot chart-nya; bahas tempat/orang → foto-nya; tidak ada visual relevan → kosongkan saja (clip jadi full speaker).
 
 Per-clip B-roll minimums: **2 assets per clip** — stack/repeat them to
 cover the full clip; full-frame `full: true` allowed for 1–2 punchy
-moments. Default panel mode fills bottom half; full mode takes over
+moments. Default panel mode fills bottom 35%; full mode takes over
 while captions stay on top.
 
 ## 5. Cut + build props (wide shots, faces, punches, 1-line captions, b-roll)
@@ -145,7 +145,7 @@ node scripts/make-clip-props.mjs \
 
 Alur per clip (deterministik — jangan hand-roll): potong `public/clips/<slug>/clip-N.mp4` via ffmpeg, lalu `scripts/detect-faces.py` jalan otomatis (offline: Haar cascade bawaan opencv, tracking centroid, mouth-motion scoring → petakan speaker ke wajah → deteksi talk-over) → faces ke `source/<slug>/faces-<slug>-N.json`. Gagal (no python/cv2) → fallback crop statis lebar pakai `focus`, tidak ada yang rusak. `--no-faces` untuk skip eksplisit, `--python py` kalau binary python lu beda nama.
 
-Dari situ script membangun: **shots** (ganti speaker = cut ringan, framing TETAP wide — tidak pernah split screen; co-host tetap di frame), **captions** (persis 1 baris per kartu, max 3 kata, ALL CAPS condensed — putih, kata aktif/keyword kuning), **source label** (`SUMBER : NAMA` persisten kiri-atas), **zoom punch** (7% pop di keyword/punchline), **b-roll** (panel bawah 50/50; `full: true` = full-frame). `--source` = default label semua clip, per-clip `source` menimpa. Nulis `videos/<slug>/clip-N.json` dan print perintah render (sudah ber-slug: `out/<slug>/clip-N.mp4`). Sanity: `node scripts/make-clip-props.mjs --selftest`, `python scripts/detect-faces.py --selftest`.
+Dari situ script membangun: **shots** (ganti speaker = cut ringan, framing TETAP wide — tidak pernah split screen; co-host tetap di frame), **captions** (persis 1 baris per kartu, max 3 kata, ALL CAPS condensed — putih, kata aktif/keyword kuning), **source label** (`SUMBER : NAMA` persisten kiri-atas), **zoom punch** (7% pop di keyword/punchline), **b-roll** (panel bawah 65/35; `full: true` = full-frame). `--source` = default label semua clip, per-clip `source` menimpa. Nulis `videos/<slug>/clip-N.json` dan print perintah render (sudah ber-slug: `out/<slug>/clip-N.mp4`). Sanity: `node scripts/make-clip-props.mjs --selftest`, `python scripts/detect-faces.py --selftest`.
 
 ## 6. Render + VERIFY (mandatory)
 

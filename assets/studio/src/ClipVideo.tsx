@@ -44,7 +44,7 @@ export type BrollItem = {
   durationInFrames: number;
   file: string;
   kind: "image" | "video";
-  /** true = full-bleed over the whole frame; false = bottom-half panel. */
+  /** true = full-bleed over the whole frame; false = bottom 35% panel. */
   full?: boolean;
 };
 
@@ -143,6 +143,9 @@ const CroppedVideo: React.FC<{
 const zoomFor = (w: number) =>
   Math.min(1.25, Math.max(1.02, 0.28 / Math.max(0.08, w)));
 
+// 65% speaker / 35% b-roll split.
+const SPLIT_TOP = 0.65;
+
 const Footage: React.FC<{ props: ClipProps; topOnly: boolean }> = ({
   props,
   topOnly,
@@ -193,7 +196,7 @@ const Footage: React.FC<{ props: ClipProps; topOnly: boolean }> = ({
     // No face data: static wide crop, honoring the manual focus hint.
     cx = { left: 0.35, center: 0.5, right: 0.65 }[props.focus] ?? 0.5;
   }
-  const h = topOnly ? props.height / 2 : props.height;
+  const h = topOnly ? props.height * SPLIT_TOP : props.height;
   return (
     <div style={{ transform: `scale(${1 + pop})`, width: "100%", height: h }}>
       <CroppedVideo clip={props.clip} srcWidth={props.srcWidth}
@@ -363,9 +366,9 @@ export const ClipVideo: React.FC<ClipProps> = (props) => {
   const activeBroll = brollCovering(props.broll, frame);
   const panelBroll = activeBroll && !activeBroll.full ? activeBroll : null;
   const fullBroll = activeBroll && activeBroll.full ? activeBroll : null;
-  // Caption sits on the 50/50 seam when split, center-frame over full
+  // Caption sits on the 65/35 seam when split, center-frame over full
   // b-roll, slightly above center over full-bleed speaker footage.
-  const anchorY = panelBroll ? 0.5 : fullBroll ? 0.5 : 0.42;
+  const anchorY = panelBroll ? SPLIT_TOP : fullBroll ? 0.5 : 0.42;
   const topOnly = panelBroll !== null;
   return (
     <AbsoluteFill style={{ backgroundColor: theme.colors.bg }}>
@@ -374,9 +377,9 @@ export const ClipVideo: React.FC<ClipProps> = (props) => {
         <div
           style={{
             position: "absolute",
-            top: props.height / 2,
+            top: props.height * SPLIT_TOP,
             width: props.width,
-            height: props.height / 2,
+            height: props.height * (1 - SPLIT_TOP),
           }}
         >
           <BrollMedia item={panelBroll} />
