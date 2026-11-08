@@ -124,12 +124,16 @@ Field guide:
 - `focus` (`left`/`center`/`right`, default `center`) — static-crop fallback when face detect finds no face. The render frames wide on purpose (co-hosts stay in frame), so this is only insurance — with face data the camera follows loosely, never face-zoom.
 - `keywords` — kata/frasa yang di-highlight kuning + di-zoom-punch. Pilih angka, nominal, nama, dan kata emosional ("bangkrut", "selingkuh", "gila"). Max ~6 per clip; lebih dari itu = semuanya jadi tidak spesial.
 - `punchlines` — timestamp sumber (detik) untuk zoom punch manual, misal pas ketawa meledak atau gestur. Keyword hits otomatis jadi punch juga.
-- `broll` — cutaway di panel bawah 65/35 (audio interview tetap jalan). `file` boleh ditulis bebas (`public/broll/monyet.jpg` atau `broll/x.jpg` — script menormalkan ke `public/broll/<slug>/`), `at` timestamp sumber, `dur` detik. Tambah `"full": true` untuk full-frame (close-up lucu/reaksi). Gambar = diulang dengan Ken Burns drift; mp4/mov/webm = muted. Siapkan file-nya dulu dari internet sesuai topik bahasan ke `studio/public/broll/<slug>/` (bahas monyet → foto monyet, bahas buaya → foto buaya) — skill ini tidak men-download-kan B-roll. Bahas angka/chart → screenshot chart-nya; bahas tempat/orang → foto-nya; tidak ada visual relevan → kosongkan saja (clip jadi full speaker).
+- `broll` — cutaway di panel bawah 65/35 (audio interview tetap jalan). `file` boleh ditulis bebas (`public/broll/monyet.jpg` atau `broll/x.jpg` — script menormalkan ke `public/broll/<slug>/`), `at` timestamp sumber, `dur` detik. Tambah `"full": true` untuk full-frame (close-up lucu/reaksi). Gambar = diulang dengan Ken Burns drift; mp4/mov/webm = muted. Siapkan file-nya dulu dari internet ke `studio/public/broll/<slug>/` — skill ini tidak men-download-kan B-roll.
+  - JANGAN PERNAH pakai screenshot/foto dari video podcast-nya sendiri (host, co-host, narsum, studio) sebagai b-roll — kecuali yang dibahas MEMANG orang itu secara spesifik. Kalau ragu → kosongkan saja (clip jadi full speaker).
+  - 1 topik = 1 gambar. Kalau clip 30 detik bahas 1 hal, pakai SATU gambar sepanjang span itu (perpanjang `dur` / ulang), JANGAN karang gambar ke-2/ke-3 yang nggak nyambung cuma buat ngisi.
+  - Gambar harus menggambarkan apa yang DIOMONGIN di rentang `[at, at+dur)` itu persis — cek kata benda di transkrip vs isi gambar. Bahas monyet → foto monyet; bahas KPK → gedung KPK / borgol / sidang; bahas angka/chart → screenshot chart-nya. Nggak ada visual yang cocok → kosongkan.
 
-Per-clip B-roll minimums: **2 assets per clip** — stack/repeat them to
-cover the full clip; full-frame `full: true` allowed for 1–2 punchy
-moments. Default panel mode fills bottom 35%; full mode takes over
-while captions stay on top.
+B-roll coverage: SATU gambar per topik — perpanjang `dur` untuk cover
+span yang bahas hal yang sama (boleh full clip kalau topiknya satu).
+Jangan karang gambar tambahan yang nggak nyambung cuma buat ngisi;
+full-frame `full: true` allowed untuk 1–2 momen punch. Kosong = clip
+jadi full speaker, itu valid.
 
 ## 5. Cut + build props (wide shots, faces, punches, 1-line captions, b-roll)
 
