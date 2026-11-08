@@ -136,12 +136,15 @@ const CroppedVideo: React.FC<{
 };
 
 /**
- * Wide framing on purpose: zoom stays near 1.0–1.25 so the shot reads as a
+ * Wide framing on purpose: zoom stays near 1.0 so the shot reads as a
  * medium-wide two-shot. The camera follows the speaker loosely (blended
- * toward frame center) instead of punching into their face.
+ * toward frame center) instead of punching into their face. NEVER slice
+ * the active narrator's body at the frame edge — shoulders + upper torso
+ * must stay fully inside, head with breathing room, speaker centered
+ * horizontally in the top panel.
  */
 const zoomFor = (w: number) =>
-  Math.min(1.25, Math.max(1.02, 0.28 / Math.max(0.08, w)));
+  Math.min(1.18, Math.max(1.0, 0.24 / Math.max(0.08, w)));
 
 // 65% speaker / 35% b-roll split.
 const SPLIT_TOP = 0.65;
@@ -183,15 +186,26 @@ const Footage: React.FC<{ props: ClipProps; topOnly: boolean }> = ({
   const samples = props.faces?.samples;
   let cx = 0.5;
   let cy = 0.5;
-  let zoom = 1.05;
-  const b =
+  let zoom = 1.02;
+  let b =
     samples && samples.length > 0 ? faceAt(samples, track, t) : null;
   if (b) {
-    // Follow the speaker but drift toward center so a co-host stays in
-    // frame; bias slightly down to keep torso/gestures visible.
-    cx = (b.x + b.w / 2) * 0.7 + 0.5 * 0.3;
+    const faceCx = b.x + b.w / 2;
+    // Guard: mapped track off-frame (stale/ghost mapping from an older
+    // props build) — fall back to static wide instead of slicing the
+    // real speaker out at the panel edge.
+    if (faceCx < 0.02 || faceCx > 0.98) {
+      b = null;
+    }
+  }
+  if (b) {
+    // Center the ACTIVE narrator horizontally in the top panel — cx is the
+    // face center, no drift. Drifting toward frame center slices off-center
+    // speakers (e.g. grid sources) at the panel edge. Bias slightly down
+    // so shoulders + upper torso stay inside with head breathing room.
+    cx = b.x + b.w / 2;
     cy = b.y + b.h / 2 + 0.06;
-    zoom = track < 0 ? 1.05 : zoomFor(b.w);
+    zoom = track < 0 ? 1.02 : zoomFor(b.w);
   } else {
     // No face data: static wide crop, honoring the manual focus hint.
     cx = { left: 0.35, center: 0.5, right: 0.65 }[props.focus] ?? 0.5;

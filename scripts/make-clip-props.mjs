@@ -545,6 +545,27 @@ clips.forEach((clip, i) => {
   }
   const faceMap =
     faceData && typeof faceData.faceMap === "object" ? faceData.faceMap : {};
+  // Sanity: a mapped track must actually appear in the faces samples and
+  // cover the clip (present in >=50% of sample frames). Ghost tracks from
+  // grid/cut re-detections map the narrator off-frame and slice the real
+  // speaker out — drop them back to the static wide crop.
+  if (faceData?.faces?.length) {
+    const present = {};
+    for (const s of faceData.faces) {
+      for (const b of s.boxes ?? []) {
+        present[b.track] = (present[b.track] ?? 0) + 1;
+      }
+    }
+    const need = faceData.faces.length * 0.5;
+    for (const [sp, tr] of Object.entries(faceMap)) {
+      if (!Number.isInteger(tr) || (present[tr] ?? 0) < need) {
+        console.warn(
+          `Clip ${n}: face track ${tr} for "${sp}" covers too few frames — static wide crop fallback.`,
+        );
+        delete faceMap[sp];
+      }
+    }
+  }
 
   const clipSegs = timedSegs
     .filter((s) => s.end > padStart && s.start < padEnd)

@@ -126,14 +126,13 @@ Field guide:
 - `punchlines` — timestamp sumber (detik) untuk zoom punch manual, misal pas ketawa meledak atau gestur. Keyword hits otomatis jadi punch juga.
 - `broll` — cutaway di panel bawah 65/35 (audio interview tetap jalan). `file` boleh ditulis bebas (`public/broll/monyet.jpg` atau `broll/x.jpg` — script menormalkan ke `public/broll/<slug>/`), `at` timestamp sumber, `dur` detik. Tambah `"full": true` untuk full-frame (close-up lucu/reaksi). Gambar = diulang dengan Ken Burns drift; mp4/mov/webm = muted. Siapkan file-nya dulu dari internet ke `studio/public/broll/<slug>/` — skill ini tidak men-download-kan B-roll.
   - JANGAN PERNAH pakai screenshot/foto dari video podcast-nya sendiri (host, co-host, narsum, studio) sebagai b-roll — kecuali yang dibahas MEMANG orang itu secara spesifik. Kalau ragu → kosongkan saja (clip jadi full speaker).
-  - 1 topik = 1 gambar. Kalau clip 30 detik bahas 1 hal, pakai SATU gambar sepanjang span itu (perpanjang `dur` / ulang), JANGAN karang gambar ke-2/ke-3 yang nggak nyambung cuma buat ngisi.
-  - Gambar harus menggambarkan apa yang DIOMONGIN di rentang `[at, at+dur)` itu persis — cek kata benda di transkrip vs isi gambar. Bahas monyet → foto monyet; bahas KPK → gedung KPK / borgol / sidang; bahas angka/chart → screenshot chart-nya. Nggak ada visual yang cocok → kosongkan.
+  - 1 clip = 1 topik. Pecah jadi subtopik sesuai alur omongan — tiap subtopik dikasih 1+ foto yang nempel di timestamp bahasannya (penangkapan → gedung KPK, istri → ilustrasi istri nunggu kabar, penjara → jeruji/sel). Kalau clip beneran nggak bisa dipecah (1 subtopik doang), TETAP rotasi: cari 5–6 foto beda soal topik itu, masing-masing `dur` 4–6 detik sambung-menyambung cover full clip. Contoh topik "KPK tangkap koruptor" → gedung KPK, borgol, mobil tahanan, ruang sidang, palu hakim, jeruji. JANGAN 1 foto dipaksa 30 detik — itu bikin b-roll kelihatan diam/macet.
+  - Tiap foto harus menggambarkan apa yang DIOMONGIN di rentang `[at, at+dur)` itu persis — cek kata benda di transkrip vs isi foto. Nggak ada visual yang cocok → kosongkan segmen itu (gap tanpa b-roll = full speaker, itu valid).
 
-B-roll coverage: SATU gambar per topik — perpanjang `dur` untuk cover
-span yang bahas hal yang sama (boleh full clip kalau topiknya satu).
-Jangan karang gambar tambahan yang nggak nyambung cuma buat ngisi;
-full-frame `full: true` allowed untuk 1–2 momen punch. Kosong = clip
-jadi full speaker, itu valid.
+B-roll coverage: pecah per SUBTOPIK dulu (1+ foto per subtopik, nempel
+di timestamp bahasannya); kalau 1 subtopik doang → ROTASI 4–6 detik per
+foto, sambung-menyambung cover full clip. `full: true` allowed untuk
+1–2 momen punch. Kosong = clip jadi full speaker, itu valid.
 
 ## 5. Cut + build props (wide shots, faces, punches, 1-line captions, b-roll)
 
@@ -163,8 +162,12 @@ npx remotion still src/index.ts Clip out/$SLUG/check_1.png \
   --props=videos/$SLUG/clip-1.json --frame 45 --overwrite
 ```
 
-Per the motion-graphics skill: extract stills at 3–4 frames per clip and LOOK at them — include one frame over a b-roll panel and one on a punch/keyword. Fix list in frequency order: two-shot framing too tight (face fills >60% frame height — widen via looser zoom, never face-zoom), speaker torso/gestures cropped out, caption wrapping to 2 lines (cards must be max 3 words — fix in props, not in render), white-on-white illegibility, source label missing/overlapping, b-roll covering the caption seam badly, split-screen appearing at all (there is no split mode anymore — shots stay wide single). Re-render, re-inspect. Never deliver an unverified render. First render downloads a Chrome Headless Shell (~150 MB); if blocked, `REMOTION_BROWSER=<path>` or `--browser-executable=<path>`.
+Per the motion-graphics skill: extract stills at 3–4 frames per clip and LOOK at them — include one frame over a b-roll panel and one on a punch/keyword. Fix list in frequency order:
+- Active narrator's body sliced at the panel edge (most common when the source is a grid/multi-cam layout and the speaker sits off-center — the crop follows the FACE, so center the speaker; never drift toward frame center). Shoulders + upper torso fully inside, head with breathing room, no half-faces.
+- Speaker torso/gestures cropped out, caption wrapping to 2 lines (cards must be max 3 words — fix in props, not in render), white-on-white illegibility, source label missing/overlapping, b-roll covering the caption seam badly, split-screen appearing at all (there is no split mode anymore — shots stay wide single). Re-render, re-inspect. Never deliver an unverified render. First render downloads a Chrome Headless Shell (~150 MB); if blocked, `REMOTION_BROWSER=<path>` or `--browser-executable=<path>`.
 
 ## 7. Deliver
 
 For each clip: the `studio/out/<slug>/clip-N.mp4` path, duration, 1080×1920, plus a table of title / hook / why-viral. Report total runtime. Done.
+
+**Thumbnail per clip:** extract from a frame where a B-roll panel is ON SCREEN (never a bare-speaker frame — those read as empty/unfinished next to the 65/35 split). Pick the clearest such frame with the caption visible: `npx remotion still ... --frame <F>` where F sits inside a b-roll `from`–`from+durationInFrames` range, save as `studio/out/<slug>/thumb-N.png`.

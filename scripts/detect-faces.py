@@ -71,9 +71,16 @@ def smooth_series(values, window=SMOOTH_WINDOW):
 
 def map_speakers(speaker_scores):
     """speaker_scores: {speaker: {track: motion}}. Greedy best-pair assignment
-    so two speakers never share one face. Returns {speaker: track | None}."""
+    so two speakers never share one face. Returns {speaker: track | None}.
+
+    Tracks that only appear LATE in the clip are grid ghosts — a different
+    camera angle re-detecting the same people under fresh ids. They lose
+    to tracks visible from the cold open no matter the motion score. The
+    caller sets map_speakers.late_tracks; absent = no penalty (selftest)."""
+    late = getattr(map_speakers, "late_tracks", set())
     pairs = sorted(
         ((m, sp, tr) for sp, tm in speaker_scores.items() for tr, m in tm.items()),
+        key=lambda p: (p[2] not in late, p[0]),
         reverse=True,
     )
     taken_sp, taken_tr, mapping = set(), set(), {}
@@ -143,6 +150,14 @@ def selftest():
     assert m == {"A": 0, "B": 1}, f"greedy distinct assignment failed: {m}"
     m = map_speakers({"A": {0: 0.0}})
     assert m == {"A": None}, "zero-motion speaker must map to None"
+    # Late-appearing ghost track must lose to a cold-open track even with
+    # a lower motion score.
+    map_speakers.late_tracks = {9}
+    try:
+        m = map_speakers({"A": {0: 1.0, 9: 99.0}})
+        assert m == {"A": 0}, f"ghost track must not win: {m}"
+    finally:
+        map_speakers.late_tracks = set()
     ov = find_overlaps([(0, 5, "A"), (3, 8, "B"), (20, 20.5, "A"), (20.2, 21, "B")])
     assert ov == [{"start": 3, "end": 5}], f"overlap wrong: {ov}"
     print("selftest: all assertions passed")
@@ -234,13 +249,25 @@ def main(args):
                 b[key] = round(v, 4)
 
     scores = {}
+    first_seen = {}
     for s in samples:
         active = {sp for a, b, sp in segments if a <= s["t"] < b}
         for box in s["boxes"]:
+            first_seen.setdefault(box["track"], s["t"])
             for sp in active:
                 scores.setdefault(sp, {}).setdefault(box["track"], 0.0)
                 scores[sp][box["track"]] += box["m"]
-    face_map = map_speakers(scores)
+    # Ghost tracks: first seen after 25% of the clip span. A grid/cut to a
+    # new angle re-detects the same people under fresh ids with big motion
+    # scores — mapping the narrator to them slices the real speaker off.
+    span = max((s["t"] for s in samples), default=0)
+    map_speakers.late_tracks = {
+        tr for tr, t0 in first_seen.items() if span > 0 and t0 > span * 0.25
+    }
+    try:
+        face_map = map_speakers(scores)
+    finally:
+        map_speakers.late_tracks = set()
     overlaps = find_overlaps(segments)
 
     with open(args.out, "w", encoding="utf-8") as f:
