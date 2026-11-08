@@ -11,7 +11,7 @@ export const theme = {
     text: "#F4F4F5",
     textDim: "#A1A1AA",
     glow: "rgba(124, 58, 237, 0.4)",
-    captionActive: "#FFD60A", // active caption word — readable over footage
+    captionActive: "#FFFF00", // active/keyword caption word — reference yellow
   },
   fonts: {
     display: "Space Grotesk",

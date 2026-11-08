@@ -27,6 +27,11 @@ references/viral-rubric.md  # the 7-signal scoring rubric for moment detection
 
 ## What the render looks like
 
-9:16 full-bleed crop that follows the tracked speaker's face (cut on speaker change, split-screen on talk-over), Hormozi-style word captions (active = yellow pop, keywords = cyan), hook title card over the first 1.2s, progress bar, zoom punches on keywords/punchlines, optional b-roll cutaways, grade + grain + vignette on top.
+50/50 vertical split — speaker on top in a wide medium shot (2 people stay
+in frame, never zoomed into a face), B-roll image/video on the bottom
+(full-frame for funny/animal close-ups). Persistent `SUMBER : CHANNEL`
+credit top-left, single-line ALL CAPS condensed captions on the seam
+(white, active/keyword word in yellow). No progress bar, no hook card —
+the cold-opened hook line is the opener.
 
 Motion craft rules come from the `remotion-motion-graphics` skill — read it before touching any Remotion code.

@@ -15,18 +15,37 @@ Expected: `/gud-clipper-remotion <youtube_url> output <N>`
 - `N`: integer 1–10. Outside that range → ask for a correction, don't guess.
 - Missing pieces → ask for them, don't proceed half-blind.
 
-## 1. Bootstrap the studio (once per project)
+## 1. Slug + bootstrap the studio (once per video)
 
-The render project lives in `./studio`. If it has no `package.json`, copy the template and install:
+The studio template is shared — only outputs get a slug. Derive `SLUG`
+from the video title first: lowercase, words joined with hyphens, first
+4–6 meaningful words only, max ~40 chars, drop junk (`|`, `PODCAST`,
+episode numbers, emoji). Example:
+`Ngobrol Santai Bareng Monyet Alfa | Podkesmas #12` → `ngobrol-monyet-alfa`.
+
+Per-video outputs live under that slug inside the FIXED folders:
+
+```
+source/<slug>/       # full.mp4, audio.wav/json, clips.json, faces-<slug>-N.json
+studio/
+  public/clips/<slug>/   # cut clip-N.mp4
+  public/broll/<slug>/   # fetched b-roll for this video
+  videos/<slug>/         # clip-N.json props
+  out/<slug>/            # final clip-N.mp4 + check stills
+```
+
+If `source/<slug>` already exists, append `-2`, `-3`.
 
 ```powershell
+yt-dlp --print "%(title)s" "<url>"
+# derive SLUG from the title above, then:
 Copy-Item -Recurse <skill>/assets/studio ./studio
 New-Item -ItemType Directory -Force ./studio/scripts | Out-Null
 Copy-Item <skill>/scripts/* ./studio/scripts/
 cd studio; npm install
 pip install opencv-python
 ```
-(bash: `cp -r <skill>/assets/studio ./studio; cp <skill>/scripts/* ./studio/scripts/; pip install opencv-python`)
+(bash: `SLUG=...; cp -r <skill>/assets/studio ./studio; cp <skill>/scripts/* ./studio/scripts/; pip install opencv-python`)
 
 Needs on PATH: `yt-dlp`, `ffmpeg`/`ffprobe`, `node`, `python` (+ `opencv-python` for face detect; without it clips fall back to static crop — nothing breaks).
 
@@ -34,22 +53,28 @@ Before writing or touching ANY Remotion code, read the **`remotion-motion-graphi
 
 ## 2. Download + metadata
 
+One slug folder per video — pass the SAME slug to everything downstream:
+
 ```powershell
-New-Item -ItemType Directory -Force source | Out-Null
-yt-dlp --print "%(title)s | %(duration)s sec | %(thumbnail)s" "<url>"
+$SLUG = "ngobrol-monyet-alfa"  # from step 1
+New-Item -ItemType Directory -Force source/$SLUG | Out-Null
+yt-dlp --print "%(title)s | %(duration)s sec | %(uploader)s | %(thumbnail)s" "<url>"
 yt-dlp -f "bv*[height<=1080]+ba/b[height<=1080]/b" --merge-output-format mp4 \
-  -o "source/full.%(ext)s" "<url>"
+  -o "source/$SLUG/full.%(ext)s" "<url>"
 ```
+
+Note the uploader/channel name from the first print — you will pass it as
+`--source` to `make-clip-props.mjs` so every clip carries `SUMBER : NAME`.
 
 ## 3. Transcribe with word timestamps
 
 Local Whisper is the default (free, ID + EN, no API key):
 
 ```bash
-ffmpeg -y -i source/full.mp4 -vn -ar 16000 -ac 1 source/audio.wav
-whisper source/audio.wav --model medium --language auto \
-  --word_timestamps True --output_format json -o source/
-# produces source/audio.json (whisper verbose_json shape)
+ffmpeg -y -i source/$SLUG/full.mp4 -vn -ar 16000 -ac 1 source/$SLUG/audio.wav
+whisper source/$SLUG/audio.wav --model medium --language auto \
+  --word_timestamps True --output_format json -o source/$SLUG/
+# produces source/<slug>/audio.json (whisper verbose_json shape)
 ```
 
 Alternative: ElevenLabs Scribe with `diarize=true`, exported as JSON with `segments[]`. Both shapes are accepted downstream — `make-clip-props.mjs` normalizes either into:
@@ -79,53 +104,63 @@ Selection rules:
 - 30–90s each (hard limits: 15s min, 180s max). Reject overlong rambles.
 - Each clip **self-contained**: needs zero prior context to land.
 - Trim `start` to the hook line — the punch must hit within 3s of the clip opening.
-- Write `source/clips.json` — one object per clip. `title`/`start`/`end` required; the rest optional:
+- Write `source/<slug>/clips.json` — one object per clip. `title`/`start`/`end` required; the rest optional:
 
 ```json
 [{ "title": "Dia rugi 800 juta dalam 3 hari",
    "start": 1234.5, "end": 1298.0,
+   "source": "Rockaromaid",
    "hook_text": "gue rugi delapan ratus juta dalam tiga hari",
    "why_viral": "revelation 5 + hook 4: angka spesifik + cold-open di klaim",
    "focus": "center",
-   "hook": "RUGI 800 JUTA DALAM 3 HARI",
    "keywords": ["delapan ratus juta", "bangkrut"],
    "punchlines": [1261.0],
-   "broll": [{ "file": "public/broll/chart.png", "at": 1252.0, "dur": 4 }] }]
+   "broll": [{ "file": "public/broll/monyet.jpg", "at": 1252.0, "dur": 8 }] }]
 ```
 
 Field guide:
 
-- `focus` (`left`/`center`/`right`, default `center`) — static-crop fallback when face detect finds no face. Otherwise the camera follows the tracked face automatically; set this anyway as insurance.
-- `hook` — 3–8 kata, ALL CAPS di render, max 60 chars. Default = `title`. Kosongkan (`""`) untuk mematikan hook title di clip itu.
-- `keywords` — kata/frasa yang di-highlight cyan + di-zoom-punch. Pilih angka, nominal, nama, dan kata emosional ("bangkrut", "selingkuh", "gila"). Max ~6 per clip; lebih dari itu = semuanya jadi tidak spesial.
+- `source` — channel/uploader name for the `SUMBER : NAME` label (default from `--source`). One name, uppercase at render.
+- `focus` (`left`/`center`/`right`, default `center`) — static-crop fallback when face detect finds no face. The render frames wide on purpose (co-hosts stay in frame), so this is only insurance — with face data the camera follows loosely, never face-zoom.
+- `keywords` — kata/frasa yang di-highlight kuning + di-zoom-punch. Pilih angka, nominal, nama, dan kata emosional ("bangkrut", "selingkuh", "gila"). Max ~6 per clip; lebih dari itu = semuanya jadi tidak spesial.
 - `punchlines` — timestamp sumber (detik) untuk zoom punch manual, misal pas ketawa meledak atau gestur. Keyword hits otomatis jadi punch juga.
-- `broll` — cutaway di atas footage (audio interview tetap jalan). `file` relatif ke studio root (`public/broll/...`), `at` timestamp sumber, `dur` detik (default 3). Gambar = Ken Burns push-in; mp4/mov/webm = muted. Siapkan file-nya dulu (screenshot, chart, foto) — skill ini tidak men-download-kan B-roll. Bahas angka/chart → screenshot chart-nya; bahas tempat/orang → foto-nya; tidak ada visual relevan → kosongkan saja.
+- `broll` — cutaway di panel bawah 50/50 (audio interview tetap jalan). `file` boleh ditulis bebas (`public/broll/monyet.jpg` atau `broll/x.jpg` — script menormalkan ke `public/broll/<slug>/`), `at` timestamp sumber, `dur` detik. Tambah `"full": true` untuk full-frame (close-up lucu/reaksi). Gambar = diulang dengan Ken Burns drift; mp4/mov/webm = muted. Siapkan file-nya dulu dari internet sesuai topik bahasan ke `studio/public/broll/<slug>/` (bahas monyet → foto monyet, bahas buaya → foto buaya) — skill ini tidak men-download-kan B-roll. Bahas angka/chart → screenshot chart-nya; bahas tempat/orang → foto-nya; tidak ada visual relevan → kosongkan saja (clip jadi full speaker).
 
-## 5. Cut + build props (shots, faces, punches, hook, b-roll)
+Per-clip B-roll minimums: **2 assets per clip** — stack/repeat them to
+cover the full clip; full-frame `full: true` allowed for 1–2 punchy
+moments. Default panel mode fills bottom half; full mode takes over
+while captions stay on top.
+
+## 5. Cut + build props (wide shots, faces, punches, 1-line captions, b-roll)
 
 ```bash
 cd studio
 node scripts/make-clip-props.mjs \
-  --transcript ../source/audio.json \
-  --clips ../source/clips.json \
-  --src ../source/full.mp4
+  --transcript ../source/$SLUG/audio.json \
+  --clips ../source/$SLUG/clips.json \
+  --src ../source/$SLUG/full.mp4 \
+  --source "NamaChannel" \
+  --slug $SLUG
 ```
 
-Alur per clip (deterministik — jangan hand-roll): potong `public/clips/clip-N.mp4` via ffmpeg, lalu `scripts/detect-faces.py` jalan otomatis (offline: Haar cascade bawaan opencv, tracking centroid, mouth-motion scoring → petakan speaker ke wajah → deteksi talk-over). Gagal (no python/cv2) → fallback crop statis pakai `focus`, tidak ada yang rusak. `--no-faces` untuk skip eksplisit, `--python py` kalau binary python lu beda nama.
+Alur per clip (deterministik — jangan hand-roll): potong `public/clips/<slug>/clip-N.mp4` via ffmpeg, lalu `scripts/detect-faces.py` jalan otomatis (offline: Haar cascade bawaan opencv, tracking centroid, mouth-motion scoring → petakan speaker ke wajah → deteksi talk-over) → faces ke `source/<slug>/faces-<slug>-N.json`. Gagal (no python/cv2) → fallback crop statis lebar pakai `focus`, tidak ada yang rusak. `--no-faces` untuk skip eksplisit, `--python py` kalau binary python lu beda nama.
 
-Dari situ script membangun: **shots** (ganti speaker = cut ke wajahnya; talk-over 1s+ = split screen atas-bawah; gap = ikut shot sebelumnya), **captions** (potong di akhir kalimat, ≤8 kata, split di jeda >0.8s, keyword = cyan + punch), **hook**, **progress**, **b-roll**. Nulis `videos/clip-N.json` dan print perintah render. Sanity: `node scripts/make-clip-props.mjs --selftest`, `python scripts/detect-faces.py --selftest`.
+Dari situ script membangun: **shots** (ganti speaker = cut ringan, framing TETAP wide — tidak pernah split screen; co-host tetap di frame), **captions** (persis 1 baris per kartu, max 3 kata, ALL CAPS condensed — putih, kata aktif/keyword kuning), **source label** (`SUMBER : NAMA` persisten kiri-atas), **zoom punch** (7% pop di keyword/punchline), **b-roll** (panel bawah 50/50; `full: true` = full-frame). `--source` = default label semua clip, per-clip `source` menimpa. Nulis `videos/<slug>/clip-N.json` dan print perintah render (sudah ber-slug: `out/<slug>/clip-N.mp4`). Sanity: `node scripts/make-clip-props.mjs --selftest`, `python scripts/detect-faces.py --selftest`.
 
 ## 6. Render + VERIFY (mandatory)
 
+Run from `studio/`:
+
 ```bash
-npx remotion render src/index.ts Clip out/clip-1.mp4 \
-  --props=videos/clip-1.json --codec h264 --crf 17 --overwrite
-npx remotion still src/index.ts Clip out/check_1.png \
-  --props=videos/clip-1.json --frame 45 --overwrite
+cd studio
+npx remotion render src/index.ts Clip out/$SLUG/clip-1.mp4 \
+  --props=videos/$SLUG/clip-1.json --codec h264 --crf 17 --overwrite
+npx remotion still src/index.ts Clip out/$SLUG/check_1.png \
+  --props=videos/$SLUG/clip-1.json --frame 45 --overwrite
 ```
 
-Per the motion-graphics skill: extract stills at 3–4 frames per clip and LOOK at them — include one frame inside a split-screen range and one on a punch/keyword if the clip has them. Fix list in frequency order: face cropped out or camera on the wrong person (`faces-N.json` `faceMap` tells you who mapped where; override via `focus` won't help — fix by re-checking the segment speakers), caption overflow past safe area (critical content stays in middle 75% vertically — platform UI eats top/bottom), hook title overlapping faces, b-roll covering the active speaker's mouth, flat/ugly frame (grade+grain are already stacked — check they are). Re-render, re-inspect. Never deliver an unverified render. First render downloads a Chrome Headless Shell (~150 MB); if blocked, `REMOTION_BROWSER=<path>` or `--browser-executable=<path>`.
+Per the motion-graphics skill: extract stills at 3–4 frames per clip and LOOK at them — include one frame over a b-roll panel and one on a punch/keyword. Fix list in frequency order: two-shot framing too tight (face fills >60% frame height — widen via looser zoom, never face-zoom), speaker torso/gestures cropped out, caption wrapping to 2 lines (cards must be max 3 words — fix in props, not in render), white-on-white illegibility, source label missing/overlapping, b-roll covering the caption seam badly, split-screen appearing at all (there is no split mode anymore — shots stay wide single). Re-render, re-inspect. Never deliver an unverified render. First render downloads a Chrome Headless Shell (~150 MB); if blocked, `REMOTION_BROWSER=<path>` or `--browser-executable=<path>`.
 
 ## 7. Deliver
 
-For each clip: the `out/clip-N.mp4` path, duration, 1080×1920, plus a table of title / hook / why-viral. Report total runtime. Done.
+For each clip: the `studio/out/<slug>/clip-N.mp4` path, duration, 1080×1920, plus a table of title / hook / why-viral. Report total runtime. Done.

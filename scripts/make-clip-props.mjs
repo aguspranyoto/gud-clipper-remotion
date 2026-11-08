@@ -3,41 +3,51 @@
 // "Clip" composition.
 //
 //   node scripts/make-clip-props.mjs \
-//     --transcript ../source/audio.json \
-//     --clips ../source/clips.json \
-//     --src ../source/full.mp4
+//     --transcript ../source/<slug>/audio.json \
+//     --clips ../source/<slug>/clips.json \
+//     --src ../source/<slug>/full.mp4 \
+//     --slug <slug>
 //
 // --transcript accepts either shape:
 //   - ElevenLabs/Scribe: { segments: [{ text, start_time/end_time, speaker,
 //     words: [{ text, start_time/end_time }] }] }
 //   - Whisper verbose_json: { segments: [{ start, end, text,
 //     words: [{ word, start, end }] }] }
-// --clips: [{ title, start, end, focus?, hook?, keywords?, punchlines?,
+// --clips: [{ title, start, end, source?, focus?, keywords?, punchlines?,
 //     broll? }] with start/end in source seconds. keywords: ["800 juta"].
-//   punchlines: [sourceSec, ...]. broll: [{ file, at, dur }] with `at` in
-//   source seconds and `file` relative to the studio root.
+//   punchlines: [sourceSec, ...]. broll: [{ file, at, dur, full? }] with
+//   `at` in source seconds, `file` relative to the studio root, and
+//   `full: true` to take over the whole frame (funny/animal close-up).
+//   --source "CHANNEL" sets the persistent "SUMBER : CHANNEL" label
+//   (per-clip `source` overrides it).
+// --slug <slug> (required): short per-video folder name — the cut clip,
+//   faces file, props, and b-roll reference all land under it:
+//   public/clips/<slug>/clip-N.mp4, videos/<slug>/clip-N.json, and b-roll
+//   paths are rewritten to broll/<slug>/....
 //
-// Per clip: validates range, cuts public/clips/clip-N.mp4 with ffmpeg,
-// runs scripts/detect-faces.py (offline Haar + motion; skipped with
-// --no-faces or when python/cv2 is missing — falls back to static crop),
-// builds speaker-cut shots, keyword punches, hot-word captions, hook,
-// progress, and b-roll overlays, then writes videos/clip-N.json and prints
-// the render command. Run from the studio root.
+// Per clip: validates range, cuts public/clips/<slug>/clip-N.mp4 with
+// ffmpeg, runs scripts/detect-faces.py (offline Haar + motion; skipped
+// with --no-faces or when python/cv2 is missing — falls back to static
+// wide crop), builds wide speaker-following shots, 3-word single-line
+// caption cards with hot-word highlight, keyword punches, source label,
+// and bottom-panel/full b-roll overlays, then writes
+// videos/<slug>/clip-N.json and prints the render command. Run from the
+// studio root.
 //
 // Self-check (no ffmpeg/fs needed): node scripts/make-clip-props.mjs --selftest
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const SENTENCE_END = /[.!?…]["'“”‘’()\]]?$/;
-const MAX_WORDS = 8;
+const MAX_WORDS = 3;
 const MAX_GAP = 0.8;
 
 const argv = process.argv.slice(2);
 async function runSelftest() {
   const { strict: assert } = await import("node:assert");
 
-  // Grouping: sentence end cuts, 8-word cap, 0.8s pause splits.
+  // Grouping: sentence end cuts, 3-word cap, 0.8s pause splits.
   const words = (text, t0, step = 0.3) =>
     text.split(" ").map((w, i) => ({
       text: w,
@@ -48,8 +58,8 @@ async function runSelftest() {
     words("Halo apa kabar semua teman teman pendengar setia podcast ini", 0),
     30,
   );
-  assert.equal(caps.length, 2, "9 words split at the 8-word cap");
-  assert.equal(caps[0].words.length, 8);
+  assert.equal(caps.length, 4, "10 words split into 3-word single-line cards");
+  assert.equal(caps[0].words.length, 3);
 
   caps = groupCaptions(words("Serius? Gila sih itu.", 10), 30);
   assert.equal(caps.length, 2, "sentence-end punctuation cuts the card");
@@ -59,7 +69,7 @@ async function runSelftest() {
   assert.equal(caps.length, 2, ">0.8s pause splits the card");
 
   // Frame math: from/duration derive from word times, contiguous hold.
-  caps = groupCaptions(words("a b c d", 2.0), 30);
+  caps = groupCaptions(words("a b c", 2.0, 0.5), 30);
   assert.equal(caps[0].from, 60, "from = first word start * fps");
   assert.ok(
     caps[0].durationInFrames >= Math.round(1.2 * 30),
@@ -101,16 +111,21 @@ async function runSelftest() {
     "phrase match marks exactly the phrase words",
   );
 
-  // Shots: speaker change cuts, talk-over splits, gaps inherit.
+  // Shots: speaker change cuts, gaps inherit. Always single wide shots —
+  // no split-screen; co-hosts stay in frame via the wide crop.
   const segs = [
     { start: 0, end: 3, speaker: "A" },
     { start: 3, end: 6, speaker: "B" },
   ];
-  let shots = buildShots(segs, { A: 0, B: 1 }, [], 180, 30);
+  let shots = buildShots(segs, { A: 0, B: 1 }, 180, 30);
   assert.equal(shots.length, 2, "speaker change cuts the shot");
   assert.deepEqual(
     shots.map((s) => s.face),
     [0, 1],
+  );
+  assert.ok(
+    shots.every((s) => s.mode === "single"),
+    "no split mode — always a single wide shot",
   );
   shots = buildShots(
     [
@@ -118,30 +133,39 @@ async function runSelftest() {
       { start: 2, end: 6, speaker: "B" },
     ],
     { A: 0, B: 1 },
-    [{ start: 2, end: 4 }],
     180,
     30,
   );
   assert.ok(
-    shots.some((s) => s.mode === "split"),
-    "talk-over range becomes a split shot",
+    shots.every((s) => s.mode === "single"),
+    "talk-over stays a single wide shot, never a split",
   );
-  shots = buildShots(
-    [{ start: 2, end: 4, speaker: "A" }],
-    { A: 0 },
-    [],
-    180,
-    30,
-  );
+  shots = buildShots([{ start: 2, end: 4, speaker: "A" }], { A: 0 }, 180, 30);
   assert.ok(
     shots.every((s) => s.face === 0),
     "leading/trailing gaps inherit the face",
   );
-  shots = buildShots(segs, {}, [], 180, 30);
+  shots = buildShots(segs, {}, 180, 30);
   assert.deepEqual(
     shots.map((s) => s.face),
     [-1],
     "no face map falls back to static crop",
+  );
+
+  // Slug validation: lowercase words-with-hyphens, max 40 chars.
+  assert.ok(checkSlug("ngobrol-monyet-alfa"), "valid slug passes");
+  assert.ok(!checkSlug(""), "empty slug rejected");
+  assert.ok(!checkSlug("Monyet Alfa"), "spaces/uppercase rejected");
+  assert.ok(!checkSlug("a".repeat(41)), "overlong slug rejected");
+
+  // B-roll rewrite: any input path lands under broll/<slug>/basename.
+  assert.equal(
+    rewriteBroll("public/broll/monyet.jpg", "ngobrol-monyet-alfa"),
+    "broll/ngobrol-monyet-alfa/monyet.jpg",
+  );
+  assert.equal(
+    rewriteBroll("broll/old-slug/monyet.jpg", "ngobrol-monyet-alfa"),
+    "broll/ngobrol-monyet-alfa/monyet.jpg",
   );
 
   console.log("selftest: all assertions passed");
@@ -163,6 +187,8 @@ const srcFile = flag("src");
 const fps = Number(flag("fps", 30));
 const noFaces = argv.includes("--no-faces");
 const pythonBin = flag("python", "python");
+const defaultSource = flag("source", "");
+const slug = flag("slug", "");
 for (const [file, label] of [
   [transcriptFile, "--transcript"],
   [clipsFile, "--clips"],
@@ -172,6 +198,12 @@ for (const [file, label] of [
     console.error(`Missing or unreadable ${label} <file>`);
     process.exit(1);
   }
+}
+if (!checkSlug(slug)) {
+  console.error(
+    "Missing or bad --slug <slug> (lowercase words-with-hyphens, max 40 chars).",
+  );
+  process.exit(1);
 }
 
 const readJson = (file) =>
@@ -214,7 +246,9 @@ function normalizeTranscript(json) {
   });
 }
 
-// Pure: flat word list (absolute source seconds) -> caption cards.
+// Pure: flat word list (absolute source seconds) -> single-line caption
+// cards, max 3 words each. One line only — cards never wrap; the render
+// keeps each card on exactly one line at the 50/50 seam.
 function groupCaptions(words, fps) {
   const cards = [];
   let cur = null;
@@ -256,6 +290,22 @@ function cleanToken(s) {
     .replace(/[^a-z0-9À-ɏḀ-ỿ]/gi, "");
 }
 
+// Pure: slug + b-roll path helpers (also asserted in --selftest).
+function checkSlug(slug) {
+  return (
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && String(slug).length <= 40
+  );
+}
+function rewriteBroll(rel, slug) {
+  const stripped = String(rel ?? "")
+    .replace(/\\/g, "/")
+    .replace(/^public\//, "");
+  const under = stripped.startsWith("broll/")
+    ? stripped.slice("broll/".length).replace(/^[^/]+\//, "")
+    : stripped.replace(/^.*\//, "");
+  return `broll/${slug}/${under}`;
+}
+
 // Pure: flag words matching any keyword phrase (mutates words, returns them).
 function markHot(words, keywords) {
   const phrases = (Array.isArray(keywords) ? keywords : [])
@@ -273,15 +323,14 @@ function markHot(words, keywords) {
   return words;
 }
 
-// Pure: speaker timeline + overlap ranges -> shots. Gaps inherit the
-// previous face; sub-second fragments merge; no face map -> static crop.
-function buildShots(clipSegs, faceMap, overlaps, totalFrames, fps) {
+// Pure: speaker timeline -> wide single shots. Gaps inherit the previous
+// face; sub-second fragments merge; no face map -> static wide crop.
+// Never splits: co-hosts stay in frame via the loose wide framing.
+function buildShots(clipSegs, faceMap, totalFrames, fps) {
   const faceOf = (sp) => {
     const f = faceMap?.[sp];
     return Number.isInteger(f) && f >= 0 ? f : -1;
   };
-  const faces = [...new Set(Object.values(faceMap ?? {}).filter((f) => f >= 0))];
-  const canSplit = faces.length >= 2;
 
   const bounds = new Set([0, totalFrames]);
   const push = (sec) =>
@@ -289,10 +338,6 @@ function buildShots(clipSegs, faceMap, overlaps, totalFrames, fps) {
   for (const s of clipSegs) {
     push(s.start);
     push(s.end);
-  }
-  for (const o of overlaps) {
-    push(o.start);
-    push(o.end);
   }
   const edges = [...bounds].sort((a, b) => a - b);
 
@@ -303,13 +348,7 @@ function buildShots(clipSegs, faceMap, overlaps, totalFrames, fps) {
     if (dur <= 0) continue;
     const t = from / fps + dur / fps / 2;
     const active = clipSegs.filter((s) => s.start <= t && t < s.end);
-    const inOverlap = (overlaps ?? []).some((o) => o.start <= t && t < o.end);
-    const distinct = [...new Set(active.map((s) => faceOf(s.speaker)))].filter(
-      (f) => f >= 0,
-    );
-    if (inOverlap && canSplit && distinct.length >= 2) {
-      raw.push({ from, durationInFrames: dur, mode: "split", face: -1 });
-    } else if (active.length > 0) {
+    if (active.length > 0) {
       raw.push({
         from,
         durationInFrames: dur,
@@ -417,7 +456,6 @@ if (!Number.isFinite(srcHeight) || srcHeight <= 0) srcHeight = 1080;
 
 const FOCUS = new Set(["left", "center", "right"]);
 const facesDir = dirname(resolve(transcriptFile));
-
 clips.forEach((clip, i) => {
   const n = i + 1;
   const start = num(clip.start);
@@ -446,7 +484,7 @@ clips.forEach((clip, i) => {
   const clipDur = padEnd - padStart;
   const totalFrames = Math.round(clipDur * fps);
 
-  const outClip = resolve(join("public", "clips", `clip-${n}.mp4`));
+  const outClip = resolve(join("public", "clips", slug, `clip-${n}.mp4`));
   mkdirSync(dirname(outClip), { recursive: true });
   try {
     execFileSync("ffmpeg", [
@@ -476,7 +514,7 @@ clips.forEach((clip, i) => {
 
   // Face detect on the cut clip (offline). Any failure -> static crop.
   let faceData = null;
-  const facesFile = join(facesDir, `faces-${n}.json`);
+  const facesFile = join(facesDir, `faces-${slug}-${n}.json`);
   if (!noFaces) {
     try {
       execFileSync(
@@ -507,7 +545,6 @@ clips.forEach((clip, i) => {
   }
   const faceMap =
     faceData && typeof faceData.faceMap === "object" ? faceData.faceMap : {};
-  const overlaps = Array.isArray(faceData?.overlaps) ? faceData.overlaps : [];
 
   const clipSegs = timedSegs
     .filter((s) => s.end > padStart && s.start < padEnd)
@@ -516,10 +553,7 @@ clips.forEach((clip, i) => {
       end: Math.max(0, Math.min(s.end, padEnd) - padStart),
       speaker: s.speaker,
     }));
-  const shots = buildShots(clipSegs, faceMap, overlaps, totalFrames, fps);
-  const splitFaces = [...new Set(Object.values(faceMap).filter((f) => f >= 0))]
-    .sort((a, b) => a - b)
-    .slice(0, 2);
+  const shots = buildShots(clipSegs, faceMap, totalFrames, fps);
 
   const words = allWords
     .filter((w) => w.start >= padStart && w.start < padEnd)
@@ -553,10 +587,20 @@ clips.forEach((clip, i) => {
   }
   const punchTimes = [...punches].sort((a, b) => a - b);
 
-  // B-roll cutaways over the footage (audio stays on the interview).
+  // B-roll cutaways (audio stays on the interview). Default fills the
+  // bottom half under the speaker; full: true takes the whole frame
+  // (meme close-up, animal reaction) — captions stay on top regardless.
+  // Files live under public/broll/<slug>/ and are rewritten to the
+  // staticFile-relative path broll/<slug>/....
   const broll = [];
   for (const b of Array.isArray(clip.broll) ? clip.broll : []) {
-    const rel = String(b.file ?? "");
+    let rel = String(b.file ?? "");
+    // Fallback: the model prepared public/broll/<slug>/file but wrote a
+    // generic path in clips.json — resolve the basename under the slug.
+    if (rel && !existsSync(resolve(rel))) {
+      const underSlug = join("public", "broll", slug, basename(rel));
+      if (existsSync(resolve(underSlug))) rel = underSlug;
+    }
     if (!rel || !existsSync(resolve(rel))) {
       console.warn(`Clip ${n}: b-roll missing, skipped: ${rel}`);
       continue;
@@ -568,21 +612,23 @@ clips.forEach((clip, i) => {
     broll.push({
       from: clampedFrom,
       durationInFrames: Math.min(len, totalFrames - clampedFrom),
-      file: rel.replace(/\\/g, "/").replace(/^public\//, ""),
+      file: rewriteBroll(rel, slug),
       kind: /\.(mp4|mov|webm)$/i.test(rel) ? "video" : "image",
+      ...(b.full ? { full: true } : {}),
     });
   }
 
+  // Persistent source credit: overridden per clip, else --source, else the
+  // yt-dlp channel/uploader piped through the clips file.
+  const srcName = String(clip.source ?? defaultSource ?? "").trim();
   const props = {
     fps,
     width: 1080,
     height: 1920,
     durationInFrames: totalFrames,
-    clip: `clips/clip-${n}.mp4`,
+    clip: `clips/${slug}/clip-${n}.mp4`,
     title: String(clip.title ?? `Clip ${n}`),
-    ...(clip.hook || clip.title
-      ? { hook: String(clip.hook ?? clip.title).toUpperCase().slice(0, 60) }
-      : {}),
+    ...(srcName ? { sourceLabel: `SUMBER : ${srcName.toUpperCase()}` } : {}),
     focus: FOCUS.has(clip.focus) ? clip.focus : "center",
     srcWidth,
     srcHeight,
@@ -590,19 +636,17 @@ clips.forEach((clip, i) => {
     ...(faceData?.faces
       ? { faces: { sampleFps: faceData.sampleFps ?? 5, samples: faceData.faces } }
       : {}),
-    ...(splitFaces.length === 2 ? { splitFaces } : {}),
     ...(punchTimes.length > 0 ? { punchTimes } : {}),
     ...(broll.length > 0 ? { broll } : {}),
     captions,
   };
-  const outProps = resolve(join("videos", `clip-${n}.json`));
+  const outProps = resolve(join("videos", slug, `clip-${n}.json`));
   mkdirSync(dirname(outProps), { recursive: true });
   writeFileSync(outProps, `${JSON.stringify(props, null, 2)}\n`);
 
   const feats = [
     `${shots.length} shots`,
     faceData ? `${Object.keys(faceMap).length} faces mapped` : "static crop",
-    overlaps.length > 0 ? `${overlaps.length} splits` : null,
     punchTimes.length > 0 ? `${punchTimes.length} punches` : null,
     broll.length > 0 ? `${broll.length} b-roll` : null,
   ]
@@ -612,6 +656,6 @@ clips.forEach((clip, i) => {
     `Clip ${n}: "${props.title}" ${clipDur.toFixed(1)}s, ${totalFrames}f, ${captions.length} captions (${feats})`,
   );
   console.log(
-    `  Render: npx remotion render src/index.ts Clip out/clip-${n}.mp4 --props=videos/clip-${n}.json --codec h264 --crf 17 --overwrite`,
+    `  Render: npx remotion render src/index.ts Clip out/${slug}/clip-${n}.mp4 --props=videos/${slug}/clip-${n}.json --codec h264 --crf 17 --overwrite`,
   );
 });
